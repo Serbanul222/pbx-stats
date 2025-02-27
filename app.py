@@ -7,6 +7,8 @@ from collections.abc import MutableMapping
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+import threading
+import time
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +19,18 @@ app = Flask(__name__)
 PBX_URL = os.environ.get('PBX_URL', 'https://lensa.while1.biz/api/cdr')
 PBX_API_TOKEN = os.environ.get('PBX_API_TOKEN', '')
 PBX_API_KEY = os.environ.get('PBX_API_KEY', '')
+
+# Self-ping function to prevent Render spin down
+def keep_alive():
+    while True:
+        try:
+            time.sleep(600)  # Ping every 10 minutes
+            requests.get("http://127.0.0.1:5000/")  # Ping the index route
+        except Exception as e:
+            print(f"Keep-alive ping failed: {e}")
+
+# Start keep-alive in a separate thread
+threading.Thread(target=keep_alive, daemon=True).start()
 
 def flatten(dictionary, parent_key=False, separator='[', separator_suffix=']'):
     """
