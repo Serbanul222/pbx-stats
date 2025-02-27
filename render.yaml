@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pbx-viewer
+    runtime: docker
+    branch: main
+    healthCheckPath: /
+    envVars:
+      - key: PBX_URL
+        sync: false
+      - key: PBX_API_TOKEN
+        sync: false
+      - key: PBX_API_KEY
+        sync: false

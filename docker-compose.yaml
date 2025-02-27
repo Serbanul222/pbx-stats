@@ -1,10 +1,9 @@
 version: '3'
-
 services:
   pbx-viewer:
     build: .
     ports:
-      - "5000:5000"
+      - "8501:8501"  # Change to Streamlit's default port
     env_file:
       - .env
     volumes:
