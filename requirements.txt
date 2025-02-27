@@ -1,0 +1,6 @@
+flask==2.0.1
+requests==2.26.0
+python-dotenv==0.19.1
+streamlit==1.22.0
+pandas==1.5.3
+werkzeug==2.0.2

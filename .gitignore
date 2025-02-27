@@ -1,0 +1,28 @@
+# Environment variables
+.env
+
+# Python bytecode files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker files
+.docker/
+
+# Logs
+*.log
+
+# Testing
+.coverage
+htmlcov/
