@@ -174,6 +174,32 @@
             margin-bottom: 20px;
             display: none;
         }
+        .load-more {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .load-more:hover {
+            background-color: #45a049;
+        }
+        .all-loaded-message {
+            margin: 20px 0;
+            font-style: italic;
+            text-align: center;
+            color: #666;
+        }
+        .records-info {
+            text-align: right;
+            margin-bottom: 10px;
+            font-style: italic;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -226,28 +252,6 @@
             </div>
         </div>
         
-        <div class="stats">
-            <div class="stat-box">
-                <h3>Total Calls</h3>
-                <div class="stat-value" id="total-calls">-</div>
-            </div>
-            
-            <div class="stat-box">
-                <h3>Answered Calls</h3>
-                <div class="stat-value" id="answered-calls">-</div>
-            </div>
-            
-            <div class="stat-box">
-                <h3>Missed Calls</h3>
-                <div class="stat-value" id="missed-calls">-</div>
-            </div>
-            
-            <div class="stat-box">
-                <h3>Average Duration</h3>
-                <div class="stat-value" id="avg-duration">-</div>
-            </div>
-        </div>
-        
         <div class="table-container">
             <table id="calls-table">
                 <thead>
@@ -274,22 +278,43 @@
     </div>
 
     <script>
+        // Global variables for pagination
+        let allCallData = [];
+        let currentPagination = null;
+        let isLoadingMore = false;
+
         // Initialize date inputs with today's date
-        document.addEventListener('DOMContentLoaded', function() {
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('start-date').value = today;
-            document.getElementById('end-date').value = today;
-            
-            // Do NOT load data initially - wait for user to click Apply Filters
-            // Display info message instead
-            document.getElementById('loading').style.display = 'none';
-            const tableBody = document.getElementById('calls-data');
-            tableBody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Select filters and click "Apply Filters" to load data.</td></tr>';
-            
-            // Event listeners
-            document.getElementById('filter-btn').addEventListener('click', fetchData);
-            document.getElementById('reset-btn').addEventListener('click', resetFilters);
+       // Initialize date inputs and add event listeners when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default date values to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('start-date').value = today;
+    document.getElementById('end-date').value = today;
+    
+    // Display initial message in table
+    document.getElementById('loading').style.display = 'none';
+    const tableBody = document.getElementById('calls-data');
+    tableBody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Select filters and click "Apply Filters" to load data.</td></tr>';
+    
+    // Add event listener for Apply Filters button
+    document.getElementById('filter-btn').addEventListener('click', function() {
+        fetchData(true, 1); // Reset data and load first page
+    });
+    
+    // Add event listener for Reset button
+    document.getElementById('reset-btn').addEventListener('click', resetFilters);
+    
+    // Optional: Add event listeners for pressing Enter in filter fields
+    const filterInputs = document.querySelectorAll('.filters input, .filters select');
+    filterInputs.forEach(input => {
+        input.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                document.getElementById('filter-btn').click();
+            }
         });
+    });
+});
         
         function resetFilters() {
             const today = new Date().toISOString().split('T')[0];
@@ -298,17 +323,10 @@
             document.getElementById('caller-id').value = '';
             document.getElementById('call-code').value = '';
             document.getElementById('call-status').value = '';
-            fetchData();
-        }
-        
-        function fetchData() {
-            const startDate = document.getElementById('start-date').value;
-            const endDate = document.getElementById('end-date').value;
             
-            // Show loading
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('error-message').style.display = 'none';
-            document.getElementById('calls-data').innerHTML = '';
+            // Clear existing data
+            document.getElementById('calls-data').innerHTML = '<tr><td colspan="11" style="text-align: center;">Select filters and click "Apply Filters" to load data.</td></tr>';
+            allCallData = [];
             
             // Clear stats
             document.getElementById('total-calls').textContent = '-';
@@ -316,65 +334,197 @@
             document.getElementById('missed-calls').textContent = '-';
             document.getElementById('avg-duration').textContent = '-';
             
-            // API URL with query parameters (using the same server)
-            const apiUrl = `/api/calls?start_date=${startDate}&end_date=${endDate}`;
+            // Clear records info
+            document.getElementById('records-info').textContent = '';
             
-            // Fetch data from the API
-            fetch(apiUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! Status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    // Hide loading indicator
-                    document.getElementById('loading').style.display = 'none';
-                    
-                    if (data.has_error) {
-                        showError(data.messages.join(', '));
-                        return;
-                    }
-                    
-                    // Apply client-side filtering
-                    const filteredData = filterData(data.results);
-                    
-                    // Process and display the data
-                    displayData(filteredData);
-                    updateStats(filteredData);
-                })
-                .catch(error => {
-                    document.getElementById('loading').style.display = 'none';
-                    showError(`Failed to fetch data: ${error.message}`);
-                    console.error('Error fetching data:', error);
-                });
+            // Remove load more button if it exists
+            const existingButton = document.getElementById('load-more-btn');
+            if (existingButton) {
+                existingButton.remove();
+            }
         }
         
-        function filterData(calls) {
-            if (!calls || calls.length === 0) {
-                return [];
+        function fetchData(resetData = true, page = 1) {
+    const startDate = document.getElementById('start-date').value;
+    const endDate = document.getElementById('end-date').value;
+    const callerId = document.getElementById('caller-id').value.trim();
+    const callCode = document.getElementById('call-code').value;
+    const callStatus = document.getElementById('call-status').value;
+    
+    // Show loading
+    const loadingElement = document.getElementById('loading');
+    loadingElement.style.display = 'block';
+    
+    if (resetData) {
+        // Clear previous data
+        document.getElementById('error-message').style.display = 'none';
+        document.getElementById('calls-data').innerHTML = '';
+        allCallData = []; // Clear accumulated data
+        
+        // Update loading message
+        loadingElement.textContent = 'Loading call data...';
+        
+        // Remove load more button if it exists
+        const existingButton = document.getElementById('load-more-btn');
+        if (existingButton) {
+            existingButton.remove();
+        }
+    } else {
+        // Update loading message for additional pages
+        loadingElement.textContent = `Loading more data (page ${page})...`;
+    }
+    
+    // Build API URL with query parameters
+    let apiUrl = `/api/calls?start_date=${startDate}&end_date=${endDate}&page=${page}`;
+    
+    // Add optional filters if they have values
+    if (callerId) apiUrl += `&caller_id=${encodeURIComponent(callerId)}`;
+    if (callCode) apiUrl += `&call_code=${encodeURIComponent(callCode)}`;
+    if (callStatus) apiUrl += `&call_status=${encodeURIComponent(callStatus)}`;
+    
+    // Fetch data from the API
+    fetch(apiUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Hide loading indicator
+            loadingElement.style.display = 'none';
+            
+            if (data.has_error) {
+                showError(data.messages.join(', '));
+                return;
             }
             
-            // Get filter values
-            const callerIdFilter = document.getElementById('caller-id').value.toLowerCase();
-            const callCodeFilter = document.getElementById('call-code').value;
-            const callStatusFilter = document.getElementById('call-status').value;
+            // Check if we got results
+            if (!data.results || data.results.length === 0) {
+                document.getElementById('calls-data').innerHTML = 
+                    '<tr><td colspan="11" style="text-align: center;">No calls found for the selected filters.</td></tr>';
+                return;
+            }
             
-            return calls.filter(call => {
-                // Caller ID filter (search in caller_id field)
-                const callerIdMatch = !callerIdFilter || 
-                    (call.caller_id && call.caller_id.toLowerCase().includes(callerIdFilter));
+            // Add new results to our data collection if not resetting
+            if (!resetData) {
+                allCallData = [...allCallData, ...data.results];
+            } else {
+                allCallData = data.results;
+            }
+            
+            // Display current data
+            displayData(allCallData, resetData);
+            
+            // Handle pagination and add load more button if needed
+            if (data.pagination) {
+                const currentPage = data.pagination.current_page;
+                const maxPage = data.pagination.max_page;
                 
-                // Call Code filter (exact match on code field)
-                const callCodeMatch = !callCodeFilter || 
-                    (call.code && call.code === callCodeFilter);
+                if (currentPage < maxPage) {
+                    // Create load more button
+                    const tableContainer = document.querySelector('.table-container');
+                    const loadMoreBtn = document.createElement('button');
+                    loadMoreBtn.id = 'load-more-btn';
+                    loadMoreBtn.className = 'load-more';
+                    loadMoreBtn.textContent = 'Load More Results';
+                    loadMoreBtn.onclick = () => {
+                        fetchData(false, currentPage + 1);
+                    };
+                    
+                    // Remove existing button first
+                    const existingButton = document.getElementById('load-more-btn');
+                    if (existingButton) {
+                        existingButton.remove();
+                    }
+                    
+                    tableContainer.appendChild(loadMoreBtn);
+                } else {
+                    // Remove load more button if it exists
+                    const existingButton = document.getElementById('load-more-btn');
+                    if (existingButton) {
+                        existingButton.remove();
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            loadingElement.style.display = 'none';
+            showError(`Failed to fetch data: ${error.message}`);
+            console.error('Error fetching data:', error);
+        });
+}
+function updatePaginationInfo(pagination, currentCount) {
+    const infoElement = document.getElementById('records-info');
+    if (!infoElement) return;
+    
+    // Simply show the current count without the estimate
+    infoElement.textContent = `Showing ${currentCount} records`;
+}
+
+function addLoadMoreButton(nextPage) {
+    // Remove existing button if it exists
+    const existingButton = document.getElementById('load-more-btn');
+    if (existingButton) {
+        existingButton.remove();
+    }
+    
+    // Create load more button
+    const tableContainer = document.querySelector('.table-container');
+    const loadMoreBtn = document.createElement('button');
+    loadMoreBtn.id = 'load-more-btn';
+    loadMoreBtn.className = 'load-more';
+    loadMoreBtn.textContent = 'Load More Results';
+    loadMoreBtn.onclick = () => {
+        fetchData(false, nextPage);
+    };
+    
+    tableContainer.appendChild(loadMoreBtn);
+}
+        
+        function updateRecordsInfo(count, pagination) {
+            const infoElement = document.getElementById('records-info');
+            if (pagination.has_more) {
+                const estimatedTotal = pagination.row_count * pagination.max_page;
+                infoElement.textContent = `Showing ${count} records (of approximately ${estimatedTotal} total)`;
+            } else {
+                infoElement.textContent = `Showing all ${count} records`;
+            }
+        }
+        
+        function updateLoadMoreButton(pagination) {
+            // Remove existing button if it exists
+            const existingButton = document.getElementById('load-more-btn');
+            if (existingButton) {
+                existingButton.remove();
+            }
+            
+            // If there are more pages to load, show the load more button
+            if (pagination.has_more) {
+                const tableContainer = document.querySelector('.table-container');
+                const loadMoreBtn = document.createElement('button');
+                loadMoreBtn.id = 'load-more-btn';
+                loadMoreBtn.className = 'load-more';
+                loadMoreBtn.textContent = `Load More Results`;
+                loadMoreBtn.onclick = () => {
+                    if (!isLoadingMore) {
+                        // Calculate next page to fetch
+                        const nextPage = pagination.current_page + pagination.fetched_pages;
+                        fetchData(false, nextPage, 1); // Load 1 more page
+                    }
+                };
                 
-                // Call Status filter (exact match)
-                const callStatusMatch = !callStatusFilter || call.call_status === callStatusFilter;
+                tableContainer.appendChild(loadMoreBtn);
+            } else if (allCallData.length > 0) {
+                // Show message that all data is loaded
+                const tableContainer = document.querySelector('.table-container');
+                const allLoadedMsg = document.createElement('div');
+                allLoadedMsg.id = 'load-more-btn';
+                allLoadedMsg.className = 'all-loaded-message';
+                allLoadedMsg.textContent = `All records loaded`;
                 
-                // Return true only if all filters match
-                return callerIdMatch && callCodeMatch && callStatusMatch;
-            });
+                tableContainer.appendChild(allLoadedMsg);
+            }
         }
         
         function showError(message) {
@@ -383,18 +533,26 @@
             errorElement.style.display = 'block';
         }
         
-        function displayData(calls) {
+        function displayData(calls, resetTable = true) {
             const tableBody = document.getElementById('calls-data');
-            tableBody.innerHTML = '';
+            
+            if (resetTable) {
+                tableBody.innerHTML = '';
+            }
             
             if (!calls || calls.length === 0) {
-                const row = document.createElement('tr');
-                row.innerHTML = `<td colspan="11" style="text-align: center;">No calls found for the selected filters.</td>`;
-                tableBody.appendChild(row);
+                if (resetTable) {
+                    tableBody.innerHTML = `<tr><td colspan="11" style="text-align: center;">No calls found for the selected filters.</td></tr>`;
+                }
                 return;
             }
             
-            calls.forEach(call => {
+            // Determine which calls to add (only the new ones if appending)
+            const startIndex = resetTable ? 0 : tableBody.children.length;
+            const fragment = document.createDocumentFragment();
+            
+            for (let i = startIndex; i < calls.length; i++) {
+                const call = calls[i];
                 const row = document.createElement('tr');
                 
                 // Format the date and time
@@ -432,57 +590,12 @@
                     <td>${recordingLink}</td>
                 `;
                 
-                tableBody.appendChild(row);
-            });
+                fragment.appendChild(row);
+            }
+            
+            tableBody.appendChild(fragment);
         }
         
-        function updateStats(calls) {
-            if (!calls || calls.length === 0) {
-                return;
-            }
-            
-            // Calculate statistics
-            const totalCalls = calls.length;
-            const answeredCalls = calls.filter(call => call.call_status === 'ANSWERED').length;
-            const missedCalls = totalCalls - answeredCalls;
-            
-            // Calculate average duration
-            let totalDurationSeconds = 0;
-            let validDurations = 0;
-            
-            calls.forEach(call => {
-                if (call.duration) {
-                    const durationParts = call.duration.split(':');
-                    if (durationParts.length === 3) {
-                        const hours = parseInt(durationParts[0]);
-                        const minutes = parseInt(durationParts[1]);
-                        const seconds = parseInt(durationParts[2]);
-                        
-                        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-                        if (!isNaN(totalSeconds) && totalSeconds > 0) {
-                            totalDurationSeconds += totalSeconds;
-                            validDurations++;
-                        }
-                    }
-                }
-            });
-            
-            let avgDuration = '00:00:00';
-            if (validDurations > 0) {
-                const avgSeconds = Math.round(totalDurationSeconds / validDurations);
-                const avgHours = Math.floor(avgSeconds / 3600);
-                const avgMinutes = Math.floor((avgSeconds % 3600) / 60);
-                const avgSecs = avgSeconds % 60;
-                
-                avgDuration = `${String(avgHours).padStart(2, '0')}:${String(avgMinutes).padStart(2, '0')}:${String(avgSecs).padStart(2, '0')}`;
-            }
-            
-            // Update the UI
-            document.getElementById('total-calls').textContent = totalCalls;
-            document.getElementById('answered-calls').textContent = answeredCalls;
-            document.getElementById('missed-calls').textContent = missedCalls;
-            document.getElementById('avg-duration').textContent = avgDuration;
-        }
     </script>
 </body>
 </html>
